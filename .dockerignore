@@ -1,0 +1,9 @@
+.git
+.github
+Dockerfile
+.dockerignore
+compose.yaml
+Makefile
+README.md
+LICENSE
+*_test.go

@@ -15,7 +15,8 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 FROM alpine:3.24
 
 # ca-certificates-bundle is already in the alpine base.
-RUN adduser -D -H -s /sbin/nologin -u 10001 geoexporter && \
+RUN apk add --no-cache curl && \
+    adduser -D -H -s /sbin/nologin -u 10001 geoexporter && \
     mkdir -p /usr/share/GeoIP && chown geoexporter /usr/share/GeoIP
 
 COPY --from=build --chown=root:root /geoexporter /usr/local/bin/geoexporter

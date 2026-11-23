@@ -26,4 +26,3 @@ USER geoexporter
 EXPOSE 9123
 
 ENTRYPOINT ["geoexporter"]
-CMD ["-proc", "/host/proc"]

@@ -5,5 +5,6 @@ services:
     image: ghcr.io/dimns/geoexporter:latest
     container_name: geoexporter
     restart: unless-stopped
+    command: ["-proc", "/host/proc"]
     volumes:
       - "/proc:/host/proc:ro"

@@ -13,11 +13,12 @@ services:
   geoexporter:
     image: ghcr.io/dimns/geoexporter:latest
     restart: unless-stopped
+    command: ["-proc", "/host/proc"]
     volumes:
       - "/proc:/host/proc:ro"
 ```
 
-The image reads `/host/proc` by default. Prometheus only has to reach it over the Docker network:
+`-proc` must equal the mount destination of the host `/proc`: the image sets no default of its own, so the path lives only in the compose file. Prometheus only has to reach it over the Docker network:
 
 ```yaml
 scrape_configs:

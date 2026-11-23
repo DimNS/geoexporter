@@ -220,6 +220,7 @@ func main() {
 	dbURL := flag.String("url", defaultDBURL, "database download URL")
 	procPath := flag.String("proc", "/proc", "host /proc mount, socket tables are read from <proc>/1/net")
 	flag.Parse()
+	log.Printf("socket tables: %s", filepath.Join(*procPath, "1", "net"))
 
 	db := &geoDB{}
 	if err := db.ensure(*dbURL, *dbPath); err != nil {

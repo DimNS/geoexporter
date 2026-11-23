@@ -5,9 +5,5 @@ services:
     image: ghcr.io/dimns/geoexporter:latest
     container_name: geoexporter
     restart: unless-stopped
-    network_mode: host # ss must see connections in the host network namespace
     volumes:
-      - geoexporter-geoip:/usr/share/GeoIP
-
-volumes:
-  geoexporter-geoip:
+      - "/proc:/host/proc:ro"

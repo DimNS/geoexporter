@@ -14,9 +14,8 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 
 FROM alpine:3.24
 
-# ca-certificates-bundle is already in the alpine base; only ss is needed from iproute2.
-RUN apk add --no-cache iproute2-ss && \
-    adduser -D -H -s /sbin/nologin -u 10001 geoexporter && \
+# ca-certificates-bundle is already in the alpine base.
+RUN adduser -D -H -s /sbin/nologin -u 10001 geoexporter && \
     mkdir -p /usr/share/GeoIP && chown geoexporter /usr/share/GeoIP
 
 COPY --from=build --chown=root:root /geoexporter /usr/local/bin/geoexporter
@@ -26,3 +25,4 @@ USER geoexporter
 EXPOSE 9123
 
 ENTRYPOINT ["geoexporter"]
+CMD ["-proc", "/host/proc"]

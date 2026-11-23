@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"flag"
 	"fmt"
 	"io"
@@ -8,8 +9,8 @@ import (
 	"net"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -120,43 +121,89 @@ func (db *geoDB) update(url, path string) error {
 	return nil
 }
 
-func collect(db *geoDB) (map[string]int, error) {
-	out, err := exec.Command("ss", "-H", "-tun", "state", "established").Output()
-	if err != nil {
-		return nil, fmt.Errorf("ss: %w", err)
-	}
+// netFiles are the /proc/net socket tables counted by collect.
+var netFiles = []string{"tcp", "tcp6", "udp", "udp6"}
 
+// collect counts established sockets of the host network namespace by the
+// country of their peer address. The tables are read from pid 1 of proc, which
+// is the host init even when the exporter runs in a container.
+func collect(db *geoDB, proc string) (map[string]int, error) {
+	dir := filepath.Join(proc, "1", "net")
 	counts := make(map[string]int)
-	for _, line := range strings.Split(string(out), "\n") {
-		if ip := peerIP(line); ip != nil {
+	read := 0
+	for _, name := range netFiles {
+		peers, err := peerIPs(filepath.Join(dir, name))
+		if os.IsNotExist(err) {
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		for _, ip := range peers {
 			counts[db.country(ip)]++
 		}
+		read++
+	}
+	if read == 0 {
+		// Refuse to report an empty network namespace as "no connections".
+		return nil, fmt.Errorf("%s: no socket tables, is the host /proc mounted?", dir)
 	}
 	return counts, nil
 }
 
-// peerIP extracts the peer address from one `ss -tun` line.
-func peerIP(line string) net.IP {
-	fields := strings.Fields(line)
-	// With a state filter ss omits the State column, so there may be 5 fields.
-	if len(fields) < 5 {
-		return nil
-	}
-	peer := fields[len(fields)-1]
-	host, _, err := net.SplitHostPort(peer)
+func peerIPs(path string) ([]net.IP, error) {
+	f, err := os.Open(path)
 	if err != nil {
-		// ss may print IPv6 without brackets.
-		i := strings.LastIndexByte(peer, ':')
-		if i < 0 {
-			return nil
-		}
-		host = strings.Trim(peer[:i], "[]")
+		return nil, err
 	}
-	return net.ParseIP(host)
+	defer f.Close()
+
+	var out []net.IP
+	sc := bufio.NewScanner(f)
+	for sc.Scan() {
+		if ip := peerIP(sc.Text()); ip != nil {
+			out = append(out, ip)
+		}
+	}
+	return out, sc.Err()
 }
 
-func collectInto(db *geoDB, gauge *prometheus.GaugeVec) {
-	counts, err := collect(db)
+// peerIP extracts the peer address of an established socket from one line of
+// a /proc/net table.
+func peerIP(line string) net.IP {
+	fields := strings.Fields(line)
+	// sl local_address rem_address st ...; the header has no hex state.
+	if len(fields) < 4 || fields[3] != "01" {
+		return nil
+	}
+	i := strings.LastIndexByte(fields[2], ':')
+	if i < 0 {
+		return nil
+	}
+	return decodeIP(fields[2][:i])
+}
+
+// decodeIP decodes the /proc/net address format: IPv4 as 4 bytes and IPv6 as
+// 4 words of 4 bytes, both little-endian.
+func decodeIP(s string) net.IP {
+	if len(s) != 8 && len(s) != 32 {
+		return nil
+	}
+	b := make(net.IP, len(s)/2)
+	for w := range len(b) / 4 {
+		for i := range 4 {
+			v, err := strconv.ParseUint(s[w*8+i*2:w*8+i*2+2], 16, 8)
+			if err != nil {
+				return nil
+			}
+			b[w*4+3-i] = byte(v)
+		}
+	}
+	return b
+}
+
+func collectInto(db *geoDB, gauge *prometheus.GaugeVec, proc string) {
+	counts, err := collect(db, proc)
 	if err != nil {
 		log.Printf("collect: %v", err)
 		return
@@ -171,6 +218,7 @@ func main() {
 	listen := flag.String("listen", ":9123", "metrics listen address")
 	dbPath := flag.String("db", "/usr/share/GeoIP/GeoLite2-Country.mmdb", "path to GeoLite2-Country.mmdb")
 	dbURL := flag.String("url", defaultDBURL, "database download URL")
+	procPath := flag.String("proc", "/proc", "host /proc mount, socket tables are read from <proc>/1/net")
 	flag.Parse()
 
 	db := &geoDB{}
@@ -201,7 +249,7 @@ func main() {
 
 	go func() {
 		for {
-			collectInto(db, gauge)
+			collectInto(db, gauge, *procPath)
 			time.Sleep(collectInterval)
 		}
 	}()
